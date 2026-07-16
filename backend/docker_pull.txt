@@ -1,0 +1,10 @@
+﻿Using default tag: latest
+docker : request returned 500 Internal Server Error for API route and version http://%2F%2F.%2Fpipe%2FdockerDesktopLinu
+xEngine/v1.51/images/create?fromImage=docker.io%2Fgosom%2Fgoogle-maps-scraper&tag=latest, check if the server supports 
+the requested API version
+En línea: 1 Carácter: 111
++ ... xt -Encoding UTF8; docker pull gosom/google-maps-scraper 2>&1 | Out-F ...
++                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (request returne...ted API version:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

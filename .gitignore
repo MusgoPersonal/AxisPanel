@@ -1,0 +1,12 @@
+node_modules/
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
+nul
+err.txt
+out.txt
+test.txt
+api_keys_initial.json
+api_rotation_state_initial.json

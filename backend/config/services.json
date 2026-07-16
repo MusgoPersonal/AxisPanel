@@ -1,0 +1,53 @@
+{
+  "brand": "AxisPanel",
+  "owner": "Jordan",
+  "tagline": "De la idea a la web — y de la web al cliente",
+  "segments": [
+    {
+      "id": "basico",
+      "name": "Básico",
+      "price_range": "50.000 - 100.000 CLP",
+      "description": "Para emprendedores que están empezando",
+      "services": [
+        { "id": "flyer", "name": "Flyer digital", "price": "15.000", "desc": "Diseño profesional para redes sociales" },
+        { "id": "tarjeta", "name": "Tarjeta de presentación digital", "price": "10.000", "desc": "Tarjeta virtual para compartir en WhatsApp" },
+        { "id": "landing", "name": "Landing page 1 sección", "price": "50.000", "desc": "Página simple con formulario de contacto" }
+      ]
+    },
+    {
+      "id": "medio",
+      "name": "Profesional",
+      "price_range": "150.000 - 400.000 CLP",
+      "description": "Para negocios que quieren presencia digital seria",
+      "services": [
+        { "id": "web_multipage", "name": "Sitio web multipágina", "price": "200.000", "desc": "Inicio, servicios, nosotros, contacto, blog" },
+        { "id": "rrss_management", "name": "Manejo de Redes Sociales (1 mes)", "price": "150.000", "desc": "8 publicaciones + respuestas + reporte" },
+        { "id": "video_promo", "name": "Video promocional 30s", "price": "100.000", "desc": "Guión + grabación + edición" },
+        { "id": "catalogo", "name": "Catálogo digital de productos", "price": "180.000", "desc": "Catálogo interactivo con hasta 50 productos" }
+      ]
+    },
+    {
+      "id": "completo",
+      "name": "Premium",
+      "price_range": "500.000 - 1.500.000+ CLP",
+      "description": "Transformación digital completa",
+      "services": [
+        { "id": "web_ecommerce", "name": "Tienda online completa", "price": "800.000", "desc": "E-commerce con carro de compras, pagos, inventario" },
+        { "id": "web_app", "name": "Aplicación web a medida", "price": "1.200.000", "desc": "Sistema administrativo, CRM, o plataforma custom" },
+        { "id": "digitalizacion", "name": "Digitalización de negocio", "price": "1.500.000", "desc": "Presencia completa: web + RRSS + email + automatización" },
+        { "id": "seo_pack", "name": "Pack SEO + Google Maps", "price": "250.000", "desc": "Posicionamiento local en Google + optimización completa" }
+      ]
+    }
+  ],
+  "addons": [
+    { "id": "hosting", "name": "Hosting + dominio (año)", "price": "60.000" },
+    { "id": "mantenimiento", "name": "Mantenimiento mensual", "price": "30.000", "desc": "Actualizaciones, backups, soporte" },
+    { "id": "fotos_producto", "name": "Fotografía de productos (x10)", "price": "50.000" },
+    { "id": "copywriting", "name": "Redacción de textos SEO", "price": "40.000" }
+  ],
+  "response_templates": {
+    "initial_contact": "¡Hola {{name}}! Vi que necesitas {{need}}. Soy Jordan de AxisPanel y te puedo ayudar. ¿Qué exactamente estás buscando? Te puedo ofrecer desde {{suggestion}}.",
+    "price_question": "¡Buenas! Mira, para {{need}} tenemos el plan {{segment}} desde {{price}}. Incluye {{includes}}. ¿Te interesa que te muestre algunos trabajos que hemos hecho?",
+    "closing": "Dale, te hago el cronograma y empezamos. Te voy a pasar un link para agendar la reunión de inicio. ¿Te parece bien {{timeframe}}?"
+  }
+}

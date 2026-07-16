@@ -1,0 +1,9 @@
+﻿docker : request returned 500 Internal Server Error for API route and version 
+http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.51/info, check if the server supports the requested API version
+En línea: 1 Carácter: 1
++ docker info --format '{{.ServerVersion}}' 2>&1 | Out-File C:\AxisPane ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (request returne...ted API version:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+

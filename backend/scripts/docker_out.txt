@@ -1,0 +1,18 @@
+﻿28.3.2
+
+docker : Error response from daemon: No such image: gosom/google-maps-scraper:latest
+En línea: 1 Carácter: 119
++ ... oding UTF8; docker image inspect gosom/google-maps-scraper --format ' ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Error response ...-scraper:latest:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Using default tag: latest
+latest: Pulling from gosom/google-maps-scraper
+9e569ba28913: Pulling fs layer
+a43e1509e87a: Pulling fs layer
+b3f57a217551: Pulling fs layer
+1375c189b929: Pulling fs layer
+Digest: sha256:4229aee349b15b944147b93cb8c889adbc3fc542970b0a0bcd34f8ac2d471fde
+Status: Downloaded newer image for gosom/google-maps-scraper:latest
+docker.io/gosom/google-maps-scraper:latest
