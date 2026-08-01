@@ -7,7 +7,6 @@
     "dev": "cd frontend && npx vite build --watch"
   },
   "dependencies": {
-    "@codebuff/sdk": "file:../Users/jordan/Downloads/codebuff/sdk",
     "@googlemaps/google-maps-services-js": "^3.3.40",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "better-sqlite3": "^12.11.1",
