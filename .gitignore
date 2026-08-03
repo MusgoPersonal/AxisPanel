@@ -10,3 +10,6 @@ out.txt
 test.txt
 api_keys_initial.json
 api_rotation_state_initial.json
+
+data/
+*.bak

@@ -21,7 +21,7 @@ const HERMES_DIR = (process.env.AXIS_HERMES_DIR || path.join(HOME_DIR, '.hermes'
 
 const PORT = parseInt(process.env.AXIS_PORT || '3030');
 const HOST = process.env.AXIS_HOST || '0.0.0.0';
-const AUTH_TOKEN = process.env.AXIS_AUTH_TOKEN || 'Pr0sp3r1d4d...C0m';
+const AUTH_TOKEN = process.env.AXIS_AUTH_TOKEN || '';
 
 let HERMES_API_KEY = process.env.HERMES_API_KEY || '';
 try {
@@ -39,7 +39,7 @@ try {
 }
 
 if (!process.env.AXIS_AUTH_TOKEN) {
-  console.log(`[Auth] Usando token fijo por defecto`);
+  console.log('[Auth] AVISO: AXIS_AUTH_TOKEN no definido — acceso sin autenticación');
 }
 
 // ─── Paths ───
@@ -1826,6 +1826,32 @@ app.post('/api/workflow/start', authLimiter, async (req, res) => {
   res.json({ success: true, steps });
 });
 
+// ─── Obsidian fs-direct helper (multiplataforma) ───
+function obsidian(args) {
+  try {
+    const vault = process.env.AXIS_OBSIDIAN_VAULT || (IS_WIN ? 'C:\\AxisPanel\\vault' : '/opt/axispanel/vault');
+    const action = args[0];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.md`;
+    if (action === 'daily:read') {
+      const file = path.join(vault, today);
+      const content = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+      return { code: 0, stdout: content, stderr: '' };
+    }
+    if (action === 'daily:append') {
+      const file = path.join(vault, today);
+      fs.mkdirSync(vault, { recursive: true });
+      const contentArg = args.find(a => a.startsWith('content='));
+      const content = contentArg ? contentArg.slice('content='.length) : '';
+      fs.appendFileSync(file, '\n' + content, 'utf8');
+      return { code: 0, stdout: `Appended to ${today}`, stderr: '' };
+    }
+    return { code: -1, stdout: '', stderr: `Comando no soportado: ${action}` };
+  } catch (e) {
+    return { code: 1, stdout: '', stderr: e.message };
+  }
+}
+
 // ─── DAILY WORKFLOW: Obsidian + CRM ───
 app.post('/api/workflow/daily', authLimiter, async (req, res) => {
   try {
@@ -2092,7 +2118,7 @@ try { require('./modules/obscura-api')(app, { authLimiter, apiLimiter, execSync,
 app.listen(PORT, HOST, () => {
   const env = IS_WIN ? 'Windows' : (IS_WSL ? 'WSL' : 'Linux');
   console.log(`[Axis Command Center] http://${HOST}:${PORT} (${env})`);
-  console.log(`[Auth] Token: ${AUTH_TOKEN ? AUTH_TOKEN.substring(0, 8) + '...' : '(ninguno — usar axischat sin auth)'}`);
+  console.log(`[Auth] Autenticación: ${AUTH_TOKEN ? 'token desde AXIS_AUTH_TOKEN' : '(ninguna — usar axischat sin auth)'}`);
   if (!process.env.AXIS_AUTH_TOKEN) console.log('[Auth] Set AXIS_AUTH_TOKEN env var for a fixed token');
   if (typeof followUp !== 'undefined') {
     followUp.startScheduler();

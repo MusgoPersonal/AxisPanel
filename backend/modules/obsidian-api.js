@@ -2,11 +2,15 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = function createObsidianApi(app, { authLimiter, apiLimiter }) {
-  const VAULT_PATH = process.env.AXIS_OBSIDIAN_VAULT || 'C:\\AxisPanel\\vault';
-  const OBSIDIAN_CLI = path.join(
-    process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local'),
-    'Programs', 'Obsidian', 'Obsidian.com'
-  );
+  const IS_WIN = process.platform === 'win32';
+  const VAULT_PATH = process.env.AXIS_OBSIDIAN_VAULT ||
+    (IS_WIN ? 'C:\\AxisPanel\\vault' : '/opt/axispanel/vault');
+  const OBSIDIAN_CLI = IS_WIN
+    ? path.join(
+        process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local'),
+        'Programs', 'Obsidian', 'Obsidian.com'
+      )
+    : '/usr/bin/obsidian';
 
   function vaultExists() {
     return fs.existsSync(VAULT_PATH) && fs.statSync(VAULT_PATH).isDirectory();
@@ -109,7 +113,7 @@ module.exports = function createObsidianApi(app, { authLimiter, apiLimiter }) {
 
   app.post('/api/obsidian/create', apiLimiter, async (req, res) => {
     const { name, content, template, path: filePath, open } = req.body;
-    const target = filePath || (name || 'nota-' + Date.now()) + '.md';
+    let target = filePath || (name || 'nota-' + Date.now()) + '.md';
     if (!target.endsWith('.md')) target += '.md';
     const fullPath = writeNote(target, content || '');
     res.json({ success: true, path: fullPath.replace(VAULT_PATH + path.sep, '') });
