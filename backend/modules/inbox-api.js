@@ -26,11 +26,23 @@ module.exports = function createInboxApi(app, { crmDb, authLimiter }) {
       const limit = parseInt(req.query.limit) || 100;
       const messages = crmDb.prepare(
         `SELECT i.*, l.name as lead_name FROM interactions i
-         JOIN conversations c ON i.lead_id = c.lead_id
          LEFT JOIN leads l ON i.lead_id = l.id
-         WHERE c.id = ? ORDER BY i.created_at DESC LIMIT ?`
+         WHERE i.lead_id = ? ORDER BY i.created_at DESC LIMIT ?`
       ).all(req.params.id, limit);
       res.json({ messages });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/inbox/:id/messages', (req, res) => {
+    try {
+      const { content, direction, channel } = req.body || {};
+      if (!content) return res.status(400).json({ error: 'content requerido' });
+      const lead = crmDb.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
+      if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
+      const interaction = require('./crm-db.js').addInteraction(crmDb, lead.id, {
+        type: 'chat', content, direction: direction || 'outgoing', channel: channel || 'manual'
+      });
+      res.json({ success: true, message: interaction });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
