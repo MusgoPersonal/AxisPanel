@@ -7,6 +7,7 @@ let sock = null;
 let qrCode = null;
 let qrDataUrl = null;
 let connected = false;
+let connecting = false;
 let messagesBuffer = [];
 let saveMessageFn = null;
 const contacts = new Map(); // jid -> { jid, phone, name, notify, verifiedName, imgUrl, status }
@@ -40,6 +41,7 @@ function upsertContact(c) {
 
 async function start() {
   if (sock) return { success: true, message: 'WhatsApp ya conectado' };
+  connecting = true;
 
   ensureDir(AUTH_DIR);
 
@@ -66,6 +68,7 @@ async function start() {
     }
     if (connection === 'open') {
       connected = true;
+      connecting = false;
       qrCode = null;
       qrDataUrl = null;
       console.log('[WhatsApp] Conectado!');
@@ -75,12 +78,23 @@ async function start() {
       connected = false;
       const reason = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output ? lastDisconnect.error.output.statusCode : undefined;
       console.log('[WhatsApp] Desconectado. Razón:', reason);
-      if (reason === DisconnectReason.loggedOut) {
-        console.log('[WhatsApp] Sesión cerrada. Limpiando auth...');
-        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-        contacts.clear();
-      }
       sock = null;
+      qrCode = null;
+      qrDataUrl = null;
+      if (reason === DisconnectReason.loggedOut) {
+        console.log('[WhatsApp] Sesión inválida — limpiando auth y regenerando QR...');
+        contacts.clear();
+        try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); }
+        catch (e) {
+          console.error('[WhatsApp] Error limpiando auth:', e.message);
+          setTimeout(() => { try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch (e2) {} }, 1500);
+        }
+        connecting = true;
+        setTimeout(() => { start().catch(e => console.error('[WhatsApp] Reintento error:', e.message)); }, 2000);
+      } else if (connecting) {
+        console.log('[WhatsApp] QR expirado — regenerando en 2.5s...');
+        setTimeout(() => { start().catch(e => console.error('[WhatsApp] Reintento error:', e.message)); }, 2500);
+      }
     }
   });
 
@@ -116,6 +130,7 @@ async function start() {
 }
 
 function stop() {
+  connecting = false;
   if (sock) {
     try { sock.end(new Error('Stopped by user')); } catch (e) {}
     sock = null;
