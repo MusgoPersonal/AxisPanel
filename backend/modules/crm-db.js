@@ -114,6 +114,13 @@ function initDB(configDir) {
       FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category);
     CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source);
@@ -428,9 +435,82 @@ function getLeadBySourceId(db, source, sourceId) {
   return db.prepare('SELECT * FROM leads WHERE source = ? AND source_id = ?').get(source, sourceId);
 }
 
+// ─── Tags ───
+function listTags(db) {
+  return db.prepare('SELECT * FROM tags ORDER BY name COLLATE NOCASE').all();
+}
+
+function upsertTag(db, name) {
+  const tag = String(name || '').trim();
+  if (!tag) return null;
+  db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(tag);
+  return db.prepare('SELECT * FROM tags WHERE name = ?').get(tag);
+}
+
+function syncLeadTags(db, tagsString) {
+  if (!tagsString) return;
+  const parts = String(tagsString).split(',').map(t => t.trim()).filter(Boolean);
+  const stmt = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
+  for (const p of parts) stmt.run(p);
+}
+
+// ─── Tasks ───
+function listTasks(db, filters = {}) {
+  const { leadId, completed } = filters;
+  const conditions = [];
+  const params = {};
+  if (leadId !== undefined) { conditions.push('t.lead_id = @leadId'); params.leadId = parseInt(leadId); }
+  if (completed !== undefined) { conditions.push('t.completed = @completed'); params.completed = completed ? 1 : 0; }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  return db.prepare(`SELECT t.*, l.name as lead_name FROM tasks t LEFT JOIN leads l ON t.lead_id = l.id ${where} ORDER BY (t.completed = 1) ASC, (t.due_at IS NULL) ASC, t.due_at ASC, t.created_at DESC`).all(params);
+}
+
+function deleteTask(db, id) {
+  return db.prepare('DELETE FROM tasks WHERE id = ?').run(id).changes > 0;
+}
+
+// ─── Bulk actions ───
+function bulkUpdateLeads(db, ids, data) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  if (data.action === 'delete') {
+    return db.prepare(`DELETE FROM leads WHERE id IN (${placeholders})`).run(...ids).changes;
+  }
+  if (data.action === 'move' && data.value) {
+    const r = db.prepare(`UPDATE leads SET stage = ?, updated_at = ? WHERE id IN (${placeholders})`).run(data.value, new Date().toISOString(), ...ids);
+    return r.changes;
+  }
+  if (data.action === 'tag' && data.value) {
+    const leads = db.prepare(`SELECT id, tags FROM leads WHERE id IN (${placeholders})`).all(...ids);
+    const upd = db.prepare('UPDATE leads SET tags = ?, updated_at = ? WHERE id = ?');
+    let n = 0;
+    for (const l of leads) {
+      const existing = (l.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+      if (!existing.includes(data.value)) existing.push(data.value);
+      upd.run(existing.join(','), new Date().toISOString(), l.id);
+      n++;
+    }
+    syncLeadTags(db, data.value);
+    return n;
+  }
+  if (data.action === 'untag' && data.value) {
+    const leads = db.prepare(`SELECT id, tags FROM leads WHERE id IN (${placeholders})`).all(...ids);
+    const upd = db.prepare('UPDATE leads SET tags = ?, updated_at = ? WHERE id = ?');
+    let n = 0;
+    for (const l of leads) {
+      const existing = (l.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+      const next = existing.filter(t => t !== data.value);
+      if (next.length !== existing.length) { upd.run(next.join(','), new Date().toISOString(), l.id); n++; }
+    }
+    return n;
+  }
+  return 0;
+}
+
 module.exports = {
   initDB, migrateFromJson, getLeads, getLead, createLead, updateLead,
   moveLeadStage, addInteraction, createTask, completeTask, deleteLead,
   getPipelineStats, getStats, getLeadBySourceId,
+  listTags, upsertTag, syncLeadTags, listTasks, deleteTask, bulkUpdateLeads,
   PIPELINE_STAGES, PIPELINE_DISPLAY
 };

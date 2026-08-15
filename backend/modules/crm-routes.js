@@ -23,7 +23,9 @@ function createCRMRoutes(app, db, authLimiter, apiLimiter) {
   // ─── Create lead ───
   app.post('/api/crm/leads', authLimiter, (req, res) => {
     try {
-      const lead = require('./crm-db.js').createLead(db, req.body);
+      const crm = require('./crm-db.js');
+      const lead = crm.createLead(db, req.body);
+      if (req.body && req.body.tags) crm.syncLeadTags(db, req.body.tags);
       res.status(201).json(lead);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -33,8 +35,10 @@ function createCRMRoutes(app, db, authLimiter, apiLimiter) {
   // ─── Update lead ───
   app.patch('/api/crm/leads/:id', authLimiter, (req, res) => {
     try {
-      const lead = require('./crm-db.js').updateLead(db, parseInt(req.params.id), req.body);
+      const crm = require('./crm-db.js');
+      const lead = crm.updateLead(db, parseInt(req.params.id), req.body);
       if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
+      if (req.body && req.body.tags) crm.syncLeadTags(db, req.body.tags);
       res.json(lead);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -134,6 +138,44 @@ function createCRMRoutes(app, db, authLimiter, apiLimiter) {
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─── Tags list ───
+  app.get('/api/crm/tags', apiLimiter, (req, res) => {
+    try { res.json(require('./crm-db.js').listTags(db)); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── Create tag ───
+  app.post('/api/crm/tags', authLimiter, (req, res) => {
+    try {
+      const tag = require('./crm-db.js').upsertTag(db, (req.body || {}).name);
+      res.status(201).json(tag);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── Tasks list ───
+  app.get('/api/crm/tasks', apiLimiter, (req, res) => {
+    try { res.json(require('./crm-db.js').listTasks(db, req.query)); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── Delete task ───
+  app.delete('/api/crm/tasks/:id', authLimiter, (req, res) => {
+    try {
+      const ok = require('./crm-db.js').deleteTask(db, parseInt(req.params.id));
+      if (!ok) return res.status(404).json({ error: 'Tarea no encontrada' });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── Bulk actions ───
+  app.post('/api/crm/bulk', authLimiter, (req, res) => {
+    try {
+      const { ids, action, value } = req.body || {};
+      const n = require('./crm-db.js').bulkUpdateLeads(db, ids, { action, value });
+      res.json({ success: true, affected: n });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 }
 
