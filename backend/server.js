@@ -300,7 +300,8 @@ const PROVIDERS = {
   openai: { name: 'OpenAI', url: 'https://platform.openai.com/api-keys', prefix: 'sk-proj-', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'] },
   anthropic: { name: 'Anthropic', url: 'https://console.anthropic.com/settings/keys', prefix: 'sk-ant-', models: ['claude-sonnet-4', 'claude-3-5-sonnet-latest'] },
   backblaze: { name: 'Backblaze B2', url: 'https://secure.backblaze.com/app_keys.htm', prefix: 'b2-', models: ['storage'] },
-  mimo: { name: 'Xiaomi MiMo', url: 'https://platform.xiaomimimo.com', prefix: '', models: ['mimo-v2.5-pro', 'mimo-v2.5'] }
+  mimo: { name: 'Xiaomi MiMo', url: 'https://platform.xiaomimimo.com', prefix: '', models: ['mimo-v2.5-pro', 'mimo-v2.5'] },
+  qwen: { name: 'Qwen (Alibaba)', url: 'https://www.alibabacloud.com/product/modelstudio', prefix: 'sk-', models: ['qwen-max', 'qwen-plus', 'qwen-turbo'] }
 };
 
 const PROVIDER_URLS = {
@@ -310,7 +311,8 @@ const PROVIDER_URLS = {
   deepseek: 'https://api.deepseek.com/v1', xai: 'https://api.x.ai/v1',
   opencode: 'https://opencode.ai/zen/v1', openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
-  mimo: 'https://api.xiaomimimo.com/v1'
+  mimo: 'https://api.xiaomimimo.com/v1',
+  qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
 };
 
 const PROVIDER_MODELS = {
@@ -320,7 +322,8 @@ const PROVIDER_MODELS = {
   deepseek: 'deepseek-chat', xai: 'grok-3',
   opencode: 'deepseek-v4-flash-free', openai: 'gpt-4o',
   anthropic: 'claude-sonnet-4',
-  mimo: 'mimo-v2.5-pro'
+  mimo: 'mimo-v2.5-pro',
+  qwen: 'qwen-plus'
 };
 
 // ─── File ops ───

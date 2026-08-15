@@ -35,7 +35,7 @@ function loadAll(app, deps) {
           try {
             if (crmDb) {
               const sourceId = `${id}_${entry.from || entry.phone || entry.email || Date.now()}`;
-              let lead = crmModule.getLeadBySourceId(crmDb, sourceId);
+              let lead = crmModule.getLeadBySourceId(crmDb, id, sourceId);
               if (!lead) {
                 lead = crmModule.createLead(crmDb, {
                   source: id, source_id: sourceId,
@@ -142,6 +142,39 @@ function loadAll(app, deps) {
       const result = await ch.module.sendMessage(to, text);
       res.json({ success: true, ...result });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // WhatsApp contacts (CRM)
+  app.get('/api/channels/whatsapp/contacts', (req, res) => {
+    const mod = channels.whatsapp && channels.whatsapp.module;
+    if (!mod || !mod.getContacts) return res.status(501).json({ error: 'getContacts no disponible' });
+    const list = mod.getContacts();
+    res.json({ contacts: list, count: list.length });
+  });
+
+  app.post('/api/channels/whatsapp/sync-contacts', authLimiter, (req, res) => {
+    const mod = channels.whatsapp && channels.whatsapp.module;
+    if (!mod || !mod.getContacts) return res.status(501).json({ error: 'WhatsApp no disponible o sin contactos' });
+    const list = mod.getContacts();
+    let added = 0, updated = 0;
+    for (const c of list) {
+      const sourceId = `whatsapp_${c.phone}`;
+      const lead = crmModule.getLeadBySourceId(crmDb, 'whatsapp', sourceId);
+      if (!lead) {
+        crmModule.createLead(crmDb, {
+          source: 'whatsapp', source_id: sourceId,
+          name: c.name || c.phone, phone: c.phone,
+          stage: 'new', score: 20
+        });
+        added++;
+      } else {
+        const patch = {};
+        if (!lead.name || lead.name === lead.phone || lead.name === c.phone) patch.name = c.name;
+        if (!lead.phone) patch.phone = c.phone;
+        if (Object.keys(patch).length) { crmModule.updateLead(crmDb, lead.id, patch); updated++; }
+      }
+    }
+    res.json({ success: true, added, updated, total: list.length });
   });
 
   console.log('[Channels] Cargados:', Object.keys(channels).filter(k => channels[k].loaded).join(', '));

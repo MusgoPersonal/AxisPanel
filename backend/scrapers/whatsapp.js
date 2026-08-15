@@ -1,76 +1,99 @@
-const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore } = require('@whiskeysockets/baileys');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const path = require('path');
 const fs = require('fs');
-let qrcode;
-try { qrcode = require('qrcode-terminal'); } catch { qrcode = null; }
+const QRCode = require('qrcode');
 
 let sock = null;
 let qrCode = null;
-let store = null;
+let qrDataUrl = null;
 let connected = false;
 let messagesBuffer = [];
 let saveMessageFn = null;
+const contacts = new Map(); // jid -> { jid, phone, name, notify, verifiedName, imgUrl, status }
 const AUTH_DIR = path.join(process.env.USERPROFILE || '.', '.axispanel', 'wa_auth');
 
 function ensureDir(d) { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); }
 
-async function start(phoneNumber) {
+function toPhone(id, phoneNumber) {
+  if (phoneNumber) return String(phoneNumber).replace(/[^0-9]/g, '');
+  return String(id || '').replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
+}
+
+function upsertContact(c) {
+  if (!c || !c.id) return;
+  const jid = c.id;
+  // Saltar grupos, broadcasts y newsletters
+  if (jid.includes('@g.us') || jid.includes('@broadcast') || jid.includes('@newsletter')) return;
+  const phone = toPhone(jid, c.phoneNumber);
+  if (!phone) return;
+  const prev = contacts.get(jid) || {};
+  contacts.set(jid, {
+    jid,
+    phone,
+    name: c.name || prev.name || c.notify || c.verifiedName || phone,
+    notify: c.notify || prev.notify || '',
+    verifiedName: c.verifiedName || prev.verifiedName || '',
+    imgUrl: c.imgUrl || prev.imgUrl || null,
+    status: c.status || prev.status || '',
+  });
+}
+
+async function start() {
   if (sock) return { success: true, message: 'WhatsApp ya conectado' };
 
   ensureDir(AUTH_DIR);
 
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  console.log(`[WhatsApp] Usando WA v${version.join('.')}, latest: ${isLatest}`);
+  const { version } = await fetchLatestBaileysVersion();
+  console.log(`[WhatsApp] Usando WA v${version.join('.')}`);
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-
-  store = makeInMemoryStore({ logger: console });
-  store.readFromFile(path.join(AUTH_DIR, 'store.json'));
 
   sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: true,
     syncFullHistory: false,
     browser: ['AxisPanel', 'Chrome', '3.0'],
-    generateHighQualityLink: true,
+    generateHighQualityLinkPreview: true,
   });
-
-  store.bind(sock.ev);
 
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
       qrCode = qr;
-      console.log('[WhatsApp] Nuevo QR generado (escanea con tu teléfono)');
-      console.log('[WhatsApp] QR string:', qr);
-      if (qrcode) qrcode.generate(qr, { small: true });
+      try { qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 }); } catch { qrDataUrl = null; }
+      console.log('[WhatsApp] Nuevo QR generado — escanéalo desde el panel');
     }
     if (connection === 'open') {
       connected = true;
       qrCode = null;
+      qrDataUrl = null;
       console.log('[WhatsApp] Conectado!');
+      if (sock && sock.user && sock.user.id) contacts.delete(sock.user.id);
     }
     if (connection === 'close') {
       connected = false;
-      const reason = lastDisconnect?.error?.output?.statusCode;
+      const reason = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output ? lastDisconnect.error.output.statusCode : undefined;
       console.log('[WhatsApp] Desconectado. Razón:', reason);
       if (reason === DisconnectReason.loggedOut) {
         console.log('[WhatsApp] Sesión cerrada. Limpiando auth...');
         fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        contacts.clear();
       }
       sock = null;
     }
   });
 
+  sock.ev.on('contacts.upsert', (list) => { for (const c of list || []) upsertContact(c); });
+  sock.ev.on('contacts.update', (list) => { for (const c of list || []) upsertContact(c); });
+
   sock.ev.on('messages.upsert', async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.key.fromMe && msg.message) {
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
         const sender = msg.key.remoteJid;
         const pushName = msg.pushName || 'Desconocido';
-        const phone = sender?.replace('@s.whatsapp.net', '') || '';
+        const phone = sender ? sender.replace('@s.whatsapp.net', '') : '';
 
         console.log(`[WhatsApp] Mensaje de ${pushName} (${phone}): ${text.slice(0, 100)}`);
 
@@ -79,56 +102,52 @@ async function start(phoneNumber) {
           name: pushName,
           text,
           timestamp: msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
-          raw: msg,
         };
         messagesBuffer.push(entry);
 
         if (saveMessageFn) {
-          try {
-            await saveMessageFn(entry);
-          } catch (e) {
-            console.error('[WhatsApp] Error guardando mensaje:', e.message);
-          }
+          try { await saveMessageFn(entry); } catch (e) { console.error('[WhatsApp] Error guardando mensaje:', e.message); }
         }
       }
     }
   });
 
-  return { success: true, message: 'WhatsApp iniciando. Revisá la terminal para el QR (o status endpoint)' };
+  return { success: true, message: 'WhatsApp iniciando. Escanea el QR en el panel' };
 }
 
 function stop() {
   if (sock) {
-    sock.end(new Error('Stopped by user'));
+    try { sock.end(new Error('Stopped by user')); } catch (e) {}
     sock = null;
     connected = false;
-    store?.writeToFile(path.join(AUTH_DIR, 'store.json'));
+    qrCode = null;
+    qrDataUrl = null;
     return { success: true, message: 'WhatsApp desconectado' };
   }
   return { success: false, message: 'No estaba conectado' };
 }
 
 function getStatus() {
-  const authExists = fs.existsSync(path.join(AUTH_DIR, 'creds.json'));
   return {
     connected,
     qr: qrCode,
-    authenticated: authExists,
-    authDir: AUTH_DIR,
+    qrDataUrl,
+    authenticated: fs.existsSync(path.join(AUTH_DIR, 'creds.json')),
+    contacts: contacts.size,
     messagesBuffer: messagesBuffer.length,
-    phone: null,
   };
 }
 
 async function sendMessage(to, text) {
   if (!sock || !connected) throw new Error('WhatsApp no conectado');
   const jid = to.includes('@s.whatsapp.net') ? to : `${to}@s.whatsapp.net`;
-  const result = await sock.sendMessage(jid, { text });
-  return result;
+  return await sock.sendMessage(jid, { text });
 }
 
-function setSaveMessageHandler(fn) {
-  saveMessageFn = fn;
+function setSaveMessageHandler(fn) { saveMessageFn = fn; }
+
+function getContacts() {
+  return Array.from(contacts.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
 function getPendingMessages() {
@@ -137,4 +156,4 @@ function getPendingMessages() {
   return msgs;
 }
 
-module.exports = { start, stop, getStatus, sendMessage, setSaveMessageHandler, getPendingMessages };
+module.exports = { start, stop, getStatus, sendMessage, setSaveMessageHandler, getPendingMessages, getContacts };
