@@ -8,11 +8,8 @@
   import Dashboard from './modules/dashboard/Dashboard.svelte';
   import ChatView from './modules/axischat/Chat.svelte';
   import Scraper from './modules/scraping/Scraper.svelte';
-  import Kanban from './modules/crm/Kanban.svelte';
-  import Leads from './modules/crm/Leads.svelte';
+  import Crm from './modules/crm/Crm.svelte';
   import Settings from './modules/settings/Settings.svelte';
-  import CrmTable from './modules/crm/CrmTable.svelte';
-  import CrmStats from './modules/crm/CrmStats.svelte';
   import AddKey from './modules/settings/AddKey.svelte';
   import LogsView from './modules/settings/LogsView.svelte';
   import AutoConfig from './modules/settings/AutoConfig.svelte';
@@ -47,9 +44,6 @@
   let availableCategories = [];
   let scrapingStatus = '';
 
-  let leadsList = [];
-  let searchFilter = '';
-
   let openPencilStatus = { mcpRunning: undefined, viteRunning: undefined };
   let hermesOnline = undefined;
   let openclawOnline = undefined;
@@ -59,6 +53,8 @@
   let dailyRunning = false;
   let rotationTrigger = 0;
   let apiCounter = { total: 0, byRoute: [] };
+  let updateInfo = null;
+  let updating = false;
 
   let unsubPipeline;
 
@@ -79,7 +75,7 @@
       const catRes = await fetch('/api/scrape/categories');
       availableCategories = await catRes.json();
       const leadsRes = await fetch('/api/crm/leads?limit=100');
-      leadsList = (await leadsRes.json()).leads || [];
+      await leadsRes.json();
       const opRes = await fetch('/api/mcp/openpencil/status');
       openPencilStatus = await opRes.json();
       const hStatusRes = await fetch('/api/hermes/status');
@@ -96,6 +92,14 @@
       dockerStatus = await dRes.json();
       const cRes = await fetch('/api/counter');
       apiCounter = await cRes.json();
+
+      // Update check
+      try {
+        const uRes = await fetch('/api/update/check');
+        const uData = await uRes.json();
+        if (uData.updateAvailable) updateInfo = uData;
+        else updateInfo = null;
+      } catch (e) { /* silent */ }
     } catch (e) { console.error('Error:', e); }
   }
 
@@ -161,9 +165,20 @@
     dailyRunning = false;
   }
 
-  async function moveLead(leadId, newStage) {
-    await fetch(`/api/crm/leads/${leadId}/move`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ stage: newStage }) });
-    await refreshAllData();
+  async function applyUpdate() {
+    if (!confirm('¿Actualizar AxisPanel desde GitHub? Se hará git pull + npm install. Luego reiniciá el servidor.')) return;
+    updating = true;
+    try {
+      const r = await fetch('/api/update/pull', { method:'POST' });
+      const d = await r.json();
+      if (d.success) {
+        alert(`✅ Actualizado a ${d.newCommit}\nReiniciá AxisPanel para aplicar los cambios.`);
+        updateInfo = null;
+      } else {
+        alert(`❌ Error: ${d.error}`);
+      }
+    } catch (e) { alert('Error: ' + e.message); }
+    updating = false;
   }
 
   function onWindowClose(toolId) {
@@ -217,20 +232,22 @@
 
   const toolTitles = {
     dashboard: 'Dashboard', chat: 'AxisChat', scraping: 'Scraping',
-    crmKanban: 'CRM Kanban', crmTable: 'CRM Tabla', crmStats: 'CRM Métricas',
-    leads: 'Lead Gen', addkey: 'API Keys', shells: 'Cloud Shells',
+    crm: 'CRM',
+    addkey: 'API Keys', shells: 'Cloud Shells',
     storage: 'Cloud Storage', logs: 'Logs', settings: 'Ajustes',
     openpencil: 'OpenPencil', openpencilChat: 'OpenPencil Chat',
     content: 'Content Factory', outreach: 'Outreach',
     builderbot: 'BuilderBot', agency: 'Agency Agents', n8n: 'n8n', calcom: 'Cal.com', obscura: 'Obscura', obsidian: 'Obsidian', followup: 'Follow-up'
   };
   function getTitle(id) { return toolTitles[id] || id; }
-
-  const crmStageOrder = ['new','contacted','responded','qualified','proposal','client','closed','lost','ignored'];
-  const crmStageDisplay = { new:'Nuevo', contacted:'Contactado', responded:'Respondió', qualified:'Calificado', proposal:'Propuesta', client:'Cliente', closed:'Cerrado', lost:'Perdido', ignored:'Ignorado' };
-  $: filteredLeads = leadsList.filter(l => searchFilter === '' || (l.name||'').toLowerCase().includes(searchFilter.toLowerCase()) || (l.category||'').toLowerCase().includes(searchFilter.toLowerCase()));
-  $: stageGroups = crmStageOrder.reduce((acc,stage) => { acc[stage] = filteredLeads.filter(l => l.stage === stage); return acc; }, {});
   $: openTools = Object.entries(storeState.open).filter(([, v]) => v).map(([k]) => k);
+  let everOpenedEmbedded = [];
+  $: if (openTools.length) {
+    const emb = openTools.filter(id => TOOLS_CONFIG[id]?.embedded);
+    const fresh = emb.filter(id => !everOpenedEmbedded.includes(id));
+    if (fresh.length) everOpenedEmbedded = [...everOpenedEmbedded, ...fresh];
+  }
+  $: renderTools = [...new Set([...openTools, ...everOpenedEmbedded])];
 
 </script>
 
@@ -283,8 +300,18 @@
     </div>
   </header>
 
+  {#if updateInfo}
+    <div class="update-banner">
+      <span>⬆️ Actualización disponible: <strong>{updateInfo.remoteCommit}</strong> — {updateInfo.remoteMessage}</span>
+      <button class="update-btn" on:click={applyUpdate} disabled={updating}>
+        {updating ? 'Actualizando...' : '▶ Actualizar ahora'}
+      </button>
+      <button class="update-dismiss" on:click={() => { updateInfo = null; }}>✕</button>
+    </div>
+  {/if}
+
   <main class="content">
-    {#each openTools as toolId, idx}
+    {#each renderTools as toolId, idx}
       <Window
         title={getTitle(toolId)}
         {toolId}
@@ -294,6 +321,8 @@
         size={storeState.sizes[toolId] || (layoutCache[toolId] && layoutCache[toolId].size) || { width: 480, height: 400 }}
         minimized={storeState.minimized[toolId]}
         fullscreen={storeState.fullscreen[toolId]}
+        embedded={TOOLS_CONFIG[toolId]?.embedded}
+        hidden={!storeState.open[toolId]}
         onClose={() => onWindowClose(toolId)}
         onFocus={() => onWindowFocus(toolId)}>
         {#if toolId === 'dashboard'}
@@ -302,23 +331,18 @@
           <ChatView {systemStatus} />
         {:else if toolId === 'scraping'}
           <Scraper bind:scraperQuery bind:scraperCategory {availableCategories} {scrapingStatus} onRun={runScraper} />
-        {:else if toolId === 'crmKanban'}
-          <Kanban {crmStageOrder} {crmStageDisplay} {stageGroups} onMoveLead={moveLead} />
-        {:else if toolId === 'leads'}
-          <Leads bind:searchFilter {filteredLeads} {crmStageOrder} {crmStageDisplay} onMoveLead={moveLead} />
+        {:else if toolId === 'crm'}
+          <Crm />
         {:else if toolId === 'settings'}
           <Settings {hermesOnline} {openclawOnline} {openPencilStatus} {b2Accounts}
-            {dockerStatus} {workflowRunning}
+            {dockerStatus} {workflowRunning} {updateInfo}
             onToggleHermes={toggleHermesService}
             onToggleOpenClaw={toggleOpenClawService}
             onToggleOpenPencilVite={toggleOpenPencilVite}
             onToggleOpenPencilMCP={toggleOpenPencilMCP}
             onToggleDockerService={toggleDockerService}
-            onRunWorkflow={runWorkflow} />
-        {:else if toolId === 'crmTable'}
-          <CrmTable />
-        {:else if toolId === 'crmStats'}
-          <CrmStats />
+            onRunWorkflow={runWorkflow}
+            onApplyUpdate={applyUpdate} />
         {:else if toolId === 'addkey'}
           <AddKey />
         {:else if toolId === 'logs'}
@@ -404,4 +428,40 @@
   .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); margin-right: 6px; }
   .status-dot.green { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
   .badge { display: inline-block; padding: 2px 6px; background: var(--bg-card); border-radius: 4px; font-size: 11px; color: var(--text-muted); }
+.daily-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .update-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #1a3a2a, #0d2818);
+    border-bottom: 1px solid var(--accent);
+    font-size: 13px;
+    color: #a8e6cf;
+    flex-shrink: 0;
+  }
+  .update-banner span { flex: 1; }
+  .update-btn {
+    padding: 4px 14px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans);
+  }
+  .update-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .update-btn:hover:not(:disabled) { opacity: 0.85; }
+  .update-dismiss {
+    background: none;
+    border: none;
+    color: #6b8f78;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+  }
+  .update-dismiss:hover { color: #a8e6cf; }
 </style>

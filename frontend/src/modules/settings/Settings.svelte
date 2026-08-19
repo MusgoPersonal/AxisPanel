@@ -5,6 +5,7 @@
   export let b2Accounts = [];
   export let dockerStatus = { docker_available: false, services: [] };
   export let workflowRunning = false;
+  export let updateInfo = null;
 
   export let onToggleHermes = (action) => {};
   export let onToggleOpenClaw = (action) => {};
@@ -12,6 +13,7 @@
   export let onToggleOpenPencilMCP = (action) => {};
   export let onToggleDockerService = (name, action) => {};
   export let onRunWorkflow = () => {};
+  export let onApplyUpdate = () => {};
 </script>
 
 <h2>⚙️ Ajustes</h2>
@@ -70,6 +72,19 @@
   {#each b2Accounts as acc}
     <p><code>{acc.key_id}</code> — {acc.bucket} <span class="badge">{acc.status}</span></p>
   {/each}
+</div>
+
+<div class="card">
+  <h3>⬆️ Actualización</h3>
+  {#if updateInfo}
+    <p style="font-size:12px;color:#a8e6cf;margin-bottom:8px;">
+      Versión <strong>{updateInfo.remoteCommit}</strong> disponible<br>
+      <span style="color:var(--text-muted);">{updateInfo.remoteMessage}</span>
+    </p>
+    <button class="btn-primary" on:click={onApplyUpdate}>▶ Actualizar desde GitHub</button>
+  {:else}
+    <p style="font-size:12px;color:var(--text-muted);">AxisPanel está actualizado ✓</p>
+  {/if}
 </div>
 
 <style>

@@ -20,8 +20,8 @@ const CONFIG_DIR = (process.env.AXIS_CONFIG_DIR || path.join(HOME_DIR, '.config'
 const HERMES_DIR = (process.env.AXIS_HERMES_DIR || path.join(HOME_DIR, '.hermes')).replace(/\\/g, '/');
 
 const PORT = parseInt(process.env.AXIS_PORT || '3030');
-const HOST = process.env.AXIS_HOST || '0.0.0.0';
-const AUTH_TOKEN = process.env.AXIS_AUTH_TOKEN || '';
+const HOST = process.env.AXIS_HOST || '127.0.0.1';
+let AUTH_TOKEN = process.env.AXIS_AUTH_TOKEN || '';
 
 let HERMES_API_KEY = process.env.HERMES_API_KEY || '';
 try {
@@ -39,7 +39,10 @@ try {
 }
 
 if (!process.env.AXIS_AUTH_TOKEN) {
-  console.log('[Auth] AVISO: AXIS_AUTH_TOKEN no definido — acceso sin autenticación');
+  AUTH_TOKEN = crypto.randomBytes(24).toString('hex');
+  console.log('[Auth] AXIS_AUTH_TOKEN no definido — se generó un token temporal:');
+  console.log('[Auth] >>> ' + AUTH_TOKEN);
+  console.log('[Auth] Para fijar un token estable, setea la variable de entorno AXIS_AUTH_TOKEN');
 }
 
 // ─── Paths ───
@@ -68,8 +71,7 @@ const AXISCHAT_MEMORY_FILE = path.join(__dirname, '..', 'axischatmemory.md');
 const AXISCHAT_MEMORY_INSTRUCTION = (
   '[System: If the user asks you to modify the AxisPanel UI, the chat interface, or any part of this interface, ' +
   'first fetch GET /api/memory/axischat to understand the full codebase structure. ' +
-  'The chat bubbles you see are rendered by frontend/src/modules/axischat/Chat.svelte — a Svelte component whose source code can be read and modified. ' +
-  'You can also execute system commands by calling POST /api/shell/exec with { command: "..." }.]\n\n'
+  'The chat bubbles you see are rendered by frontend/src/modules/axischat/Chat.svelte — a Svelte component whose source code can be read and modified.]\n\n'
 );
 
 // ─── Bootstrap config files ───
@@ -106,7 +108,7 @@ const authLimiter = createRateLimit(15 * 60 * 1000, 200);
 
 // ─── App setup ───
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', false);
 app.use(cors({ origin: [/^http:\/\/localhost/, /^http:\/\/127\.0\.0\.1/] }));
 app.use(express.json({ limit: '10mb' }));
 app.get('/crm', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'crm.html')));
@@ -149,10 +151,19 @@ try {
   console.log('[Auth] Firebase Admin no disponible — usando token compartido');
 }
 
+function isLoopback(ip) {
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
 app.use((req, res, next) => {
-  const isPublic = req.path === '/' || req.path.startsWith('/css') || req.path.startsWith('/js') || req.path.startsWith('/api/hermes') || req.path.startsWith('/api/mcp/openpencil') || req.path.startsWith('/v1') || req.path.startsWith('/assets') || req.path.startsWith('/api/chat');
+  // Rutas públicas: solo la página del panel y assets estáticos (los estáticos los
+  // sirve express.static más arriba, así que acá solo importa /crm).
+  const isPublic = req.method === 'GET' && (req.path === '/' || req.path === '/crm');
   if (isPublic) return next();
-  if (req.path === '/api/providers' || req.path === '/api/pending' || req.path === '/api/scrape/categories' || req.path.startsWith('/api/crm') || req.path === '/api/rotate' || req.path === '/api/status' || req.path.startsWith('/api/keys') || req.path.startsWith('/api/logs') || req.path === '/api/b2/accounts' || req.path === '/api/docker/status' || req.path === '/api/openclaw/status' || req.path === '/api/agents' || req.path.startsWith('/api/agents/') || req.path.startsWith('/api/logs/agent/') || req.path === '/api/health/check' || req.path === '/api/health/fix' || req.path === '/api/counter' || req.path === '/api/ip' || req.path.startsWith('/api/cbm/') || req.path === '/api/skills/exec' || req.path.startsWith('/api/builderbot/') || req.path.startsWith('/api/agency/') || req.path.startsWith('/api/n8n/') || req.path.startsWith('/api/obscura/') || req.path.startsWith('/api/calcom/') || req.path.startsWith('/api/codex/') || req.path.startsWith('/api/obsidian/') || req.path.startsWith('/api/outreach/') || req.path.startsWith('/api/telegram/') || req.path.startsWith('/api/whatsapp/') || req.path.startsWith('/api/channels') || req.path.startsWith('/api/inbox') || req.path.startsWith('/api/calification/') || req.path.startsWith('/api/appointments/') || req.path === '/api/agendar') return next();
+
+  // Conveniencia local: si la petición viene de la misma máquina (loopback) se deja
+  // pasar sin token. Los clientes remotos SIEMPRE deben autenticarse.
+  if (isLoopback(req.ip)) return next();
 
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.headers['x-axis-token'];
@@ -446,8 +457,25 @@ app.get('/api/pending', (req, res) => {
 
 app.get('/api/providers', (req, res) => { res.json(PROVIDERS); });
 
+function maskKey(key) {
+  if (!key || typeof key !== 'string') return key;
+  if (key.length <= 8) return '••••';
+  return key.slice(0, 4) + '…' + key.slice(-4);
+}
+
+function maskKeysData(data) {
+  const masked = JSON.parse(JSON.stringify(data));
+  for (const p of Object.values(masked.providers || {})) {
+    if (Array.isArray(p.keys)) p.keys = p.keys.map(maskKey);
+  }
+  for (const a of Object.values(masked.agents || {})) {
+    if (Array.isArray(a.keys)) a.keys = a.keys.map(maskKey);
+  }
+  return masked;
+}
+
 app.get('/api/keys', (req, res) => {
-  try { res.json(readFromFile(KEYS_FILE)); }
+  try { res.json(maskKeysData(readFromFile(KEYS_FILE))); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -458,7 +486,7 @@ app.get('/api/status', apiLimiter, (req, res) => {
     const cbmInstalled = fs.existsSync(CBM_BIN);
     const cbmIndexed = fs.existsSync(path.join(HOME_DIR, '.local', 'share', 'codebase-memory-mcp', 'index', 'C__AxisPanel'));
     res.json({
-      providers: keysData.providers, current_provider: keysData.current_provider,
+      providers: maskKeysData(keysData).providers, current_provider: keysData.current_provider,
       current_key_index: keysData.current_key_index, last_rotate: stateData.last_rotate,
       rotation_count: stateData.rotation_count, provider_index: stateData.provider_index,
       key_index: stateData.key_index,
@@ -824,21 +852,6 @@ app.post('/api/chat/:agent', async (req, res) => {
     const agentLogName = 'axischat';
     logAgentActivity(agentLogName, `Consulta: "${message.slice(0, 120)}..."`);
 
-    // Detectar si es comando freebuff
-    const fbMatch = message.match(/^!freebuff\s+(.+)/i);
-    if (fbMatch) {
-      try {
-        const fbCmd = fbMatch[1];
-        const child = spawn('freebuff', ['--cwd', HOME_DIR, fbCmd], { windowsHide: true, timeout: 60000 });
-        let out = ''; child.stdout.on('data', d => out += d); child.stderr.on('data', d => out += d);
-        const code = await new Promise(r => child.on('close', r));
-        logAgentActivity(agentLogName, `Freebuff exit ${code}: "${out.slice(0, 200)}"`);
-        return res.json({ reply: out.slice(0, 2000) || `(exit ${code})`, via: 'freebuff' });
-      } catch (e) {
-        return res.json({ reply: `Freebuff error: ${e.message}`, via: 'freebuff' });
-      }
-    }
-
     // Primero Hermes
     const hermesResult = await chatWithHermes(message, session_id, 30000);
     if (hermesResult.ok) {
@@ -1175,31 +1188,46 @@ app.post('/api/skills/exec', apiLimiter, async (req, res) => {
   const { message, timeout = 60000 } = req.body;
   if (!message) return res.status(400).json({ error: 'Mensaje requerido' });
   try {
-    const args = message.split(' ');
-    const cmd = args[0];
+    const args = message.split(' ').filter(Boolean);
+    const cmd = args[0] || '';
     const rest = args.slice(1);
-    let skillsArgs = '';
+    let skillsArgs;
+    const SAFE = /^[a-zA-Z0-9\/\-_.@]+$/;
     if (cmd === 'add') {
       const pkg = rest[0] || 'google/skills';
-      skillsArgs = `add ${pkg} -y`;
+      if (!SAFE.test(pkg)) return res.status(400).json({ error: 'Paquete inválido' });
+      skillsArgs = ['add', pkg, '-y'];
     } else if (cmd === 'list' || cmd === 'ls') {
-      skillsArgs = 'list';
+      skillsArgs = ['list'];
     } else if (cmd === 'find') {
-      skillsArgs = `find ${rest.join(' ')}`;
+      const term = rest.join(' ');
+      if (!term || !/^[a-zA-Z0-9\-_. ]+$/.test(term)) return res.status(400).json({ error: 'Término inválido' });
+      skillsArgs = ['find', term];
     } else if (cmd === 'remove') {
-      skillsArgs = `remove ${rest.join(' ')}`;
+      const pkg = rest[0];
+      if (!pkg || !SAFE.test(pkg)) return res.status(400).json({ error: 'Paquete inválido' });
+      skillsArgs = ['remove', pkg];
     } else {
-      skillsArgs = message;
+      return res.status(400).json({ error: 'Comando no permitido. Usa: add | list | find | remove' });
     }
-    const fullCmd = `npx skills ${skillsArgs}`;
+    const npxBin = IS_WIN ? 'npx.cmd' : 'npx';
+    const fullCmd = `npx skills ${skillsArgs.join(' ')}`;
     console.log(`[SKILLS] Ejecutando: ${fullCmd}`);
-    const result = execSync(fullCmd, { encoding: 'utf8', timeout, shell: true, maxBuffer: 1024 * 1024 });
-    logAgentActivity('skills', `Ejecutado: ${fullCmd}`);
-    res.json({ success: true, output: result, command: fullCmd });
+    const child = spawn([npxBin, 'skills', ...skillsArgs].join(' '), { shell: true, windowsHide: true, timeout });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    const exitCode = await new Promise((resolve) => {
+      child.on('close', resolve);
+      child.on('error', (err) => { stderr += err.message; resolve(-1); });
+    });
+    const result = stdout + (stderr ? '\n' + stderr : '');
+    logAgentActivity('skills', `Ejecutado: ${fullCmd} (exit ${exitCode})`);
+    res.json({ success: exitCode === 0, output: result, exitCode, command: fullCmd });
   } catch (e) {
     const stderr = e.stderr || e.message || '';
     logAgentActivity('skills', `Error: ${stderr.slice(0, 500)}`);
-    res.json({ success: false, output: stderr, error: stderr, command: `npx skills ${message}` });
+    res.json({ success: false, output: stderr, error: stderr });
   }
 });
 
@@ -2116,6 +2144,117 @@ try { require('./modules/agency-api')(app, { apiLimiter, fs, path, readFromFile,
 
 // ─── Module: Obscura / n8n / Cal.com ───
 try { require('./modules/obscura-api')(app, { authLimiter, apiLimiter, execSync, fs, path, spawn }); } catch (e) { console.error('[OBSCURA] Error:', e.message); }
+
+// ─── Update System ───
+const AXIS_PROJECT_DIR = path.resolve(__dirname, '..');
+const GITHUB_REPO = 'MusgoPersonal/AxisPanel';
+
+function readLocalVersion() {
+  try {
+    const vFile = path.join(AXIS_PROJECT_DIR, 'VERSION');
+    if (fs.existsSync(vFile)) return fs.readFileSync(vFile, 'utf8').trim();
+  } catch {}
+  return '0.0.0';
+}
+
+function readLocalCommit() {
+  try {
+    const headFile = path.join(AXIS_PROJECT_DIR, '.git', 'HEAD');
+    if (fs.existsSync(headFile)) {
+      const ref = fs.readFileSync(headFile, 'utf8').trim();
+      if (ref.startsWith('ref: ')) {
+        const refPath = path.join(AXIS_PROJECT_DIR, '.git', ref.slice(5));
+        if (fs.existsSync(refPath)) return fs.readFileSync(refPath, 'utf8').trim();
+      }
+      return ref;
+    }
+  } catch {}
+  return null;
+}
+
+// Solo disponible en loopback (misma máquina) o con auth
+app.get('/api/update/check', async (req, res) => {
+  const localVersion = readLocalVersion();
+  const localCommit = readLocalCommit();
+
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 8000);
+    const ghRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/commits/main`, {
+      headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'AxisPanel' },
+      signal: ctrl.signal
+    });
+
+    if (!ghRes.ok) {
+      return res.json({
+        error: `GitHub API: HTTP ${ghRes.status}`,
+        localVersion, localCommit,
+        remoteCommit: null, updateAvailable: false
+      });
+    }
+
+    const data = await ghRes.json();
+    const remoteCommit = data.sha;
+    const remoteMessage = data.commit?.message?.split('\n')[0] || '';
+    const remoteDate = data.commit?.committer?.date || '';
+    const updateAvailable = localCommit !== remoteCommit;
+
+    res.json({
+      localVersion, localCommit: localCommit?.slice(0, 12) || null,
+      remoteCommit: remoteCommit.slice(0, 12),
+      remoteMessage, remoteDate,
+      updateAvailable,
+      repo: GITHUB_REPO,
+      pullUrl: `https://github.com/${GITHUB_REPO}`
+    });
+  } catch (e) {
+    res.json({
+      error: e.message,
+      localVersion, localCommit: localCommit?.slice(0, 12) || null,
+      remoteCommit: null, updateAvailable: false
+    });
+  }
+});
+
+app.post('/api/update/pull', authLimiter, async (req, res) => {
+  try {
+    const steps = [];
+    
+    // Step 1: git fetch + reset (más seguro que pull)
+    steps.push({ step: 'git fetch origin', status: 'running' });
+    const fetchResult = execSync(`git fetch origin`, { cwd: AXIS_PROJECT_DIR, encoding: 'utf8', timeout: 30000 });
+    steps[0].status = 'ok';
+    steps[0].output = fetchResult.trim().slice(0, 200);
+
+    // Step 2: git reset --hard origin/main
+    steps.push({ step: 'git reset --hard origin/main', status: 'running' });
+    const resetResult = execSync(`git reset --hard origin/main`, { cwd: AXIS_PROJECT_DIR, encoding: 'utf8', timeout: 15000 });
+    steps[1].status = 'ok';
+    steps[1].output = resetResult.trim().slice(0, 200);
+
+    // Step 3: npm install
+    steps.push({ step: 'npm install', status: 'running' });
+    const npmResult = execSync(`npm install`, { cwd: AXIS_PROJECT_DIR, encoding: 'utf8', timeout: 60000 });
+    steps[2].status = 'ok';
+    steps[2].output = npmResult.trim().slice(-200);
+
+    // Step 4: new commit SHA
+    const newCommit = readLocalCommit();
+    
+    res.json({
+      success: true,
+      message: 'Actualización completada. Reiniciá AxisPanel para aplicar los cambios.',
+      newCommit: newCommit?.slice(0, 12),
+      steps
+    });
+  } catch (e) {
+    res.json({
+      success: false,
+      error: e.message,
+      steps: null
+    });
+  }
+});
 
 // ─── Startup ───
 app.listen(PORT, HOST, () => {
